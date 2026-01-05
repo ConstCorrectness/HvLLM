@@ -5,6 +5,10 @@ import os
 import time
 from contextlib import asynccontextmanager
 
+
+from .database import engine, Base
+from .models import Match, MoveLog
+
 # --- CONFIGURATION (Matches docker-compose.yml) ---
 DB_USER = "admin"
 DB_PASS = "password123"
@@ -14,40 +18,29 @@ DB_PORT = "5433"
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# Global connection objects
-engine = None
-redis_client = None
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine, redis_client
-    print("\n--- 🚀 HvLLM BACKEND RESTART ---")
+    print("\n--- 🚀 HvLLM INITIALIZING SCHEMA ---")
     
-    # 1. Test Postgres
-    try:
-        engine = create_engine(DATABASE_URL)
-        with engine.connect() as conn:
-            # We fetch the current user to prove auth works
-            res = conn.execute(text("SELECT current_user")).fetchone()
-            print(f"✅ Postgres: CONNECTED as '{res[0]}'")
-    except Exception as e:
-        print(f"❌ Postgres: FAILED - {e}")
+    # 1. Create Standard Tables (matches, move_logs)
+    Base.metadata.create_all(bind=engine)
+    print("✅ Standard Tables Created")
 
-    # 2. Test Redis
-    try:
-        redis_client = Redis(host='localhost', port=6379, decode_responses=True)
-        redis_client.ping()
-        print("✅ Redis:    CONNECTED")
-    except Exception as e:
-        print(f"❌ Redis:    FAILED - {e}")
-    
-    print("--------------------------------\n")
+    # 2. Convert 'move_logs' to a Hypertable (TimescaleDB magic)
+    with engine.connect() as conn:
+        try:
+            # This SQL command turns the table into a time-series optimized hypertable
+            conn.execute(text("SELECT create_hypertable('move_logs', 'time', if_not_exists => TRUE);"))
+            conn.commit()
+            print("✅ Hypertable 'move_logs' Configured")
+        except Exception as e:
+            print(f"⚠️ Hypertable warning (might already exist): {e}")
+            
+    print("------------------------------------\n")
     yield
-    if engine:
-        engine.dispose()
 
 app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 def read_root():
-    return {"status": "Online"}
+    return {"status": "HvLLM Schema Ready", "db": "Active"}
