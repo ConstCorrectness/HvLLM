@@ -6,8 +6,8 @@ import time
 from contextlib import asynccontextmanager
 
 
-from .database import engine, Base
-from .models import Match, MoveLog
+from database import engine, Base
+from models import Match, MoveLog
 
 # --- CONFIGURATION (Matches docker-compose.yml) ---
 DB_USER = "admin"
